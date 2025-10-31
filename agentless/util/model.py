@@ -44,8 +44,9 @@ class DecoderBase(ABC):
 
 
 class OpenAIChatDecoder(DecoderBase):
-    def __init__(self, name: str, logger, **kwargs) -> None:
+    def __init__(self, name: str, logger, backend: str = "openai", **kwargs) -> None:
         super().__init__(name, logger, **kwargs)
+        self.backend = backend
 
     def codegen(
         self, message: str, num_samples: int = 1, prompt_cache: bool = False
@@ -61,7 +62,7 @@ class OpenAIChatDecoder(DecoderBase):
             batch_size=batch_size,
             model=self.name,
         )
-        ret = request_chatgpt_engine(config, self.logger)
+        ret = request_chatgpt_engine(config, self.logger, backend=self.backend)
         if ret:
             responses = [choice.message.content for choice in ret.choices]
             completion_tokens = ret.usage.completion_tokens
@@ -355,7 +356,10 @@ class DeepSeekChatDecoder(DecoderBase):
                 model=self.name,
             )
             ret = request_chatgpt_engine(
-                config, self.logger, base_url="https://api.deepseek.com"
+                config,
+                self.logger,
+                backend="openai",
+                base_url="https://api.deepseek.com",
             )
             if ret:
                 trajs.append(
@@ -392,13 +396,14 @@ def make_model(
     max_tokens: int = 1024,
     temperature: float = 0.0,
 ):
-    if backend == "openai":
+    if backend in {"openai", "azure"}:
         return OpenAIChatDecoder(
             name=model,
             logger=logger,
             batch_size=batch_size,
             max_new_tokens=max_tokens,
             temperature=temperature,
+            backend=backend,
         )
     elif backend == "anthropic":
         return AnthropicChatDecoder(

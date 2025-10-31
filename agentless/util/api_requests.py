@@ -1,9 +1,19 @@
 import time
 from typing import Dict, Union
 
-import anthropic
-import openai
+try:
+    import openai
+except ImportError:  # pragma: no cover - optional dependency
+    openai = None
+
 import tiktoken
+
+try:
+    import anthropic
+except ImportError:  # pragma: no cover - optional dependency
+    anthropic = None
+
+from call_gpt import AzureChatCompletionResult, call_azure_openai
 
 
 def num_tokens_from_messages(message, model="gpt-3.5-turbo-0301"):
@@ -55,7 +65,57 @@ def handler(signum, frame):
     raise Exception("end of time")
 
 
-def request_chatgpt_engine(config, logger, base_url=None, max_retries=40, timeout=100):
+def request_chatgpt_engine(
+    config,
+    logger,
+    backend: str = "openai",
+    base_url=None,
+    max_retries=5,
+    timeout=100,
+):
+    if backend == "azure":
+        request_config = dict(config)
+        messages = request_config.pop("messages")
+        mode = request_config.pop("model", "gpt-5-mini")
+        max_tokens = request_config.pop("max_tokens", None)
+        temperature = request_config.pop("temperature", None)
+        n = request_config.pop("n", None)
+
+        azure_kwargs = {
+            "messages": messages,
+            "mode": mode,
+            "max_tokens": max_tokens,
+            "max_retries": max_retries,
+        }
+
+        if temperature not in (None, 1, 1.0):
+            logger.warning(
+                "Azure backend ignores unsupported temperature=%s; using service default",
+                temperature,
+            )
+        # Azure GPT-5 mini currently only supports its default temperature, so we omit it.
+
+        if n not in (None, 1):
+            logger.warning(
+                "Azure backend does not support n=%s samples; defaulting to 1", n
+            )
+
+        try:
+            ret = call_azure_openai(**azure_kwargs)
+        except Exception as e:
+            logger.error("Azure OpenAI request failed", exc_info=True)
+            raise e
+
+        if not isinstance(ret, AzureChatCompletionResult):
+            raise TypeError("Unexpected response type from Azure OpenAI request")
+
+        return ret
+
+    if backend == "openai" and openai is None:
+        raise ImportError(
+            "openai package not available; install it or use the azure backend"
+        )
+
     ret = None
     retries = 0
 
@@ -134,6 +194,11 @@ def create_anthropic_config(
 def request_anthropic_engine(
     config, logger, max_retries=40, timeout=500, prompt_cache=False
 ):
+    if anthropic is None:
+        raise ImportError(
+            "anthropic package not available; install it or avoid using the anthropic backend"
+        )
+
     ret = None
     retries = 0
 

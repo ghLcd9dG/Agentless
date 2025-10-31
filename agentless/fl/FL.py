@@ -27,9 +27,11 @@ class FL(ABC):
 
 class LLMFL(FL):
     obtain_relevant_files_prompt = """
-Please look through the following GitHub problem description and Repository structure and provide a list of files that one would need to edit to fix the problem.
+Please review the following testing specification and repository structure.
+List up to five files whose implementation details are essential for designing the requested tests (e.g., core logic under test, supporting utilities, or fixtures).
+Return only full file paths in descending order of relevance and wrap the list with ```.
 
-### GitHub Problem Description ###
+### Testing Specification ###
 {problem_statement}
 
 ###
@@ -38,21 +40,13 @@ Please look through the following GitHub problem description and Repository stru
 {structure}
 
 ###
-
-Please only provide the full path and return at most 5 files.
-The returned files should be separated by new lines ordered by most to least important and wrapped with ```
-For example:
-```
-file1.py
-file2.py
-```
 """
 
     obtain_irrelevant_files_prompt = """
-Please look through the following GitHub problem description and Repository structure and provide a list of folders that are irrelevant to fixing the problem.
-Note that irrelevant folders are those that do not need to be modified and are safe to ignored when trying to solve this problem.
+Please review the following testing specification and repository structure.
+Provide folders whose contents are irrelevant when implementing the requested tests (i.e., directories that can be safely ignored while reasoning about the behaviors under test).
 
-### GitHub Problem Description ###
+### Testing Specification ###
 {problem_statement}
 
 ###
@@ -61,17 +55,7 @@ Note that irrelevant folders are those that do not need to be modified and are s
 {structure}
 
 ###
-
-Please only provide the full path.
-Remember that any subfolders will be considered as irrelevant if you provide the parent folder.
-Please ensure that the provided irrelevant folders do not include any important files needed to fix the problem
-The returned folders should be separated by new lines and wrapped with ```
-For example:
-```
-folder1/
-folder2/folder3/
-folder4/folder5/
-```
+Only list folder paths, one per line, wrapped with ```.
 """
 
     file_content_template = """
@@ -86,10 +70,10 @@ folder4/folder5/
 """
 
     obtain_relevant_code_combine_top_n_prompt = """
-Please review the following GitHub problem description and relevant files, and provide a set of locations that need to be edited to fix the issue.
-The locations can be specified as class names, function or method names, or exact line numbers that require modification.
+Please review the testing specification and relevant files below.
+Identify the precise locations whose behavior must be understood or exercised by the tests (e.g., classes, functions/methods, or exact line ranges).
 
-### GitHub Problem Description ###
+### Testing Specification ###
 {problem_statement}
 
 ###
@@ -97,8 +81,7 @@ The locations can be specified as class names, function or method names, or exac
 
 ###
 
-Please provide the class name, function or method name, or the exact line numbers that need to be edited.
-The possible location outputs should be either "class", "function" or "line".
+Return locations as "class", "function", or "line" entries that a test author should focus on.
 
 ### Examples:
 ```
@@ -121,10 +104,10 @@ Return just the location(s) wrapped with ```.
 """
 
     obtain_relevant_code_combine_top_n_no_line_number_prompt = """
-Please review the following GitHub problem description and relevant files, and provide a set of locations that need to be edited to fix the issue.
-The locations can be specified as class, method, or function names that require modification.
+Please review the testing specification and relevant files below.
+Identify classes or functions whose behavior the tests must validate (line numbers are not required here).
 
-### GitHub Problem Description ###
+### Testing Specification ###
 {problem_statement}
 
 ###
@@ -150,11 +133,10 @@ function: my_function2
 Return just the location(s) wrapped with ```.
 """
     obtain_relevant_functions_and_vars_from_compressed_files_prompt_more = """
-Please look through the following GitHub Problem Description and the Skeleton of Relevant Files.
-Identify all locations that need inspection or editing to fix the problem, including directly related areas as well as any potentially related global variables, functions, and classes.
-For each location you provide, either give the name of the class, the name of a method in a class, the name of a function, or the name of a global variable.
+Please review the testing specification and the provided skeleton of relevant files.
+List every class, method, function, or global variable whose behavior should be considered when crafting the tests.
 
-### GitHub Problem Description ###
+### Testing Specification ###
 {problem_statement}
 
 ### Skeleton of Relevant Files ###
@@ -162,9 +144,7 @@ For each location you provide, either give the name of the class, the name of a 
 
 ###
 
-Please provide the complete set of locations as either a class name, a function name, or a variable name.
-Note that if you include a class, you do not need to list its specific methods.
-You can include either the entire class or don't include the class name and instead include specific methods in the class.
+Return each location as either a class name, function name, method name, or global variable that the tests need to exercise or inspect.
 ### Examples:
 ```
 full_path1/file1.py
@@ -187,11 +167,10 @@ Return just the locations wrapped with ```.
 """
 
     obtain_relevant_functions_and_vars_from_raw_files_prompt = """
-Please look through the following GitHub Problem Description and Relevant Files.
-Identify all locations that need inspection or editing to fix the problem, including directly related areas as well as any potentially related global variables, functions, and classes.
-For each location you provide, either give the name of the class, the name of a method in a class, the name of a function, or the name of a global variable.
+Please review the testing specification and the relevant files below.
+Identify classes, methods, functions, or global variables whose behavior is important for implementing the tests.
 
-### GitHub Problem Description ###
+### Testing Specification ###
 {problem_statement}
 
 ### Relevant Files ###
@@ -279,6 +258,19 @@ Return just the locations wrapped with ```.
         files, classes, functions = get_full_file_paths_and_classes_and_functions(
             self.structure
         )
+
+        if not raw_output or not raw_output.strip():
+            self.logger.warning("Model returned empty folder list; treating all files as relevant")
+            all_files = [file_content[0] for file_content in files]
+            return (
+                all_files,
+                {
+                    "raw_output_files": raw_output,
+                    "found_files": all_files,
+                    "filtered_files": [],
+                },
+                traj,
+            )
 
         f_files = []
         filtered_files = []
